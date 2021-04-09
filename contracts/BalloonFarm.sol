@@ -224,7 +224,7 @@ contract BalloonFarm is Ownable, ReentrancyGuard {
     }
 
     // Want tokens moved from user -> BalloonFarm (BLN allocation) -> Strat (compounding)
-    function deposit(uint256 _pid, uint256 _wantAmt) external nonReentrant {
+    function deposit(uint256 _pid, uint256 _wantAmt) external {
         updatePool(_pid);
         PoolInfo storage pool = poolInfo[_pid];
         UserInfo storage user = userInfo[_pid][msg.sender];
@@ -247,7 +247,7 @@ contract BalloonFarm is Ownable, ReentrancyGuard {
     }
 
     // Withdraw LP tokens from MasterChef.
-    function withdraw(uint256 _pid, uint256 _wantAmt) public nonReentrant {
+    function withdraw(uint256 _pid, uint256 _wantAmt) public {
         updatePool(_pid);
 
         PoolInfo storage pool = poolInfo[_pid];
@@ -291,12 +291,12 @@ contract BalloonFarm is Ownable, ReentrancyGuard {
     }
 
     // Withdraw everything from pool for yourself
-    function withdrawAll(uint256 _pid) external nonReentrant {
+    function withdrawAll(uint256 _pid) external {
         withdraw(_pid, uint256(-1));
     }
 
     // Withdraw without caring about rewards. EMERGENCY ONLY.
-    function emergencyWithdraw(uint256 _pid) external nonReentrant {
+    function emergencyWithdraw(uint256 _pid) external {
         PoolInfo storage pool = poolInfo[_pid];
         UserInfo storage user = userInfo[_pid][msg.sender];
 
