@@ -72,10 +72,10 @@ contract StratX is Ownable, ReentrancyGuard, Pausable {
     address public token0Address;
     address public token1Address;
     address public earnedAddress;
-    address public pcsRouterAddress; // uniswap, pancakeswap etc
-
+    
+    address public constant pcsRouterAddress = 0x05fF2B0DB69458A0750badebc4f9e13aDd608C7F; // uniswap, pancakeswap etc
     address public constant wbnbAddress = 0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c;
-    address public constant rewardAddress = 0xad2FA077C26dB426D12193c762b9b92b8af9280F; // StratA
+    address public rewardAddress; // StratA
     address public constant devAddress = 0x47231b2EcB18b7724560A78cd7191b121f53FABc;
     address public autoFarmAddress;
     BalloonToken public balloon;
@@ -88,20 +88,16 @@ contract StratX is Ownable, ReentrancyGuard, Pausable {
 
     uint256 public controllerFee = 100;
     uint256 public constant controllerFeeMax = 10000; // 100 = 1%
-    uint256 public constant controllerFeeUL = 300;
 
     uint256 public rewardRate = 100;
     uint256 public constant rewardRateMax = 10000; // 100 = 1%
-    uint256 public constant rewardRateUL = 800;
 
     uint256 public buyBackRate = 100;
     uint256 public constant buyBackRateMax = 10000; // 100 = 1%
-    uint256 public constant buyBackRateUL = 800;
     address public constant buyBackAddress = 0x000000000000000000000000000000000000dEaD;
 
     uint256 public entranceFeeFactor = 9990; // < 0.1% entrance fee - goes to pool + prevents front-running
     uint256 public constant entranceFeeFactorMax = 10000;
-    uint256 public constant entranceFeeFactorLL = 9950; // 0.5% is the max entrance fee settable. LL = lowerlimit
 
     address[] public earnedToBnbPath;
     address[] public earnedToBLNPath;
@@ -112,6 +108,7 @@ contract StratX is Ownable, ReentrancyGuard, Pausable {
 
     constructor(
         address _autoFarmAddress,
+        address _rewardAddress,
         BalloonToken _balloon,
         bool _isCAKEStaking,
         address _farmContractAddress,
@@ -119,11 +116,11 @@ contract StratX is Ownable, ReentrancyGuard, Pausable {
         address _wantAddress,
         address _token0Address,
         address _token1Address,
-        address _earnedAddress,
-        address _pcsRouterAddress
+        address _earnedAddress
     ) public {
         govAddress = msg.sender;
         autoFarmAddress = _autoFarmAddress;
+        rewardAddress = _rewardAddress;
         balloon = _balloon;
 
         isCAKEStaking = _isCAKEStaking;
@@ -137,8 +134,6 @@ contract StratX is Ownable, ReentrancyGuard, Pausable {
         farmContractAddress = _farmContractAddress;
         pid = _farmPid;
         earnedAddress = _earnedAddress;
-
-        pcsRouterAddress = _pcsRouterAddress;
 
         earnedToBnbPath = [earnedAddress, wbnbAddress];
 
@@ -208,6 +203,7 @@ contract StratX is Ownable, ReentrancyGuard, Pausable {
 
     // Deposit into the yield farm we're autocompounding
     function _farm() internal {
+        require(sharesTotal > 0, "No stakers");
         uint256 wantAmt = IERC20(wantAddress).balanceOf(address(this));
         wantLockedTotal = wantLockedTotal.add(wantAmt);
         IERC20(wantAddress).safeIncreaseAllowance(farmContractAddress, wantAmt);
@@ -491,27 +487,6 @@ contract StratX is Ownable, ReentrancyGuard, Pausable {
         _unpause();
     }
 
-    function setEntranceFeeFactor(uint256 _entranceFeeFactor) external govOnly {
-        require(_entranceFeeFactor > entranceFeeFactorLL, "!safe - too low");
-        require(_entranceFeeFactor <= entranceFeeFactorMax, "!safe - too high");
-        entranceFeeFactor = _entranceFeeFactor;
-    }
-
-    function setControllerFee(uint256 _controllerFee) external govOnly {
-        require(_controllerFee <= controllerFeeUL, "too high");
-        controllerFee = _controllerFee;
-    }
-
-    function setRewardRate(uint256 _rewardRate) external govOnly {
-        require(rewardRate <= rewardRateUL, "too high");
-        rewardRate = _rewardRate;
-    }
-
-    function setbuyBackRate(uint256 _buyBackRate) external govOnly {
-        require(buyBackRate <= buyBackRateUL, "too high");
-        buyBackRate = _buyBackRate;
-    }
-
     function setGov(address _govAddress) external govOnly {
         govAddress = _govAddress;
     }
@@ -526,9 +501,9 @@ contract StratX is Ownable, ReentrancyGuard, Pausable {
      */
     function inCaseTokensGetStuck(address _token, uint256 _amount, address _to) external govOnly {
         require(
-            _token != earnedAddress || 
-            _token != wantAddress || 
-            _token != token0Address ||
+            _token != earnedAddress &&
+            _token != wantAddress &&
+            _token != token0Address &&
             _token != token1Address
             , "!safe");
         IERC20(_token).safeTransfer(_to, _amount);

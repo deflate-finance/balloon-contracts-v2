@@ -115,31 +115,25 @@ contract BalloonFarm is Ownable, ReentrancyGuard {
         return poolInfo.length;
     }
 
-    // Add a new lp to the pool. Can only be called by the owner.
-    // XXX DO NOT add the same LP token more than once. Rewards will be messed up if you do. (Only if want tokens are stored here.)
+    /**
+     * Add a new lp to the pool. Can only be called by the owner.
+     * 
+     */
     function addPool(uint256 _allocPoint, IERC20 _want, bool _withUpdate, address _strat) external onlyOwner nonReentrant {
-        bool exists = false;
-        for (uint256 i; i < poolInfo.length; i++) {
-            if (poolInfo[i].strat == _strat) {
-                exists = true;
-            }
+        if (_withUpdate) {
+            massUpdatePools();
         }
-        if (!exists) {
-            if (_withUpdate) {
-                massUpdatePools();
-            }
-            uint256 lastRewardBlock = block.number > startBlock ? block.number : startBlock;
-            totalAllocPoint = totalAllocPoint.add(_allocPoint);
-            poolInfo.push(
-                PoolInfo({
-                    want: _want,
-                    allocPoint: _allocPoint,
-                    lastRewardBlock: lastRewardBlock,
-                    accBalloonPerShare: 0,
-                    strat: _strat
-                })
-            );
-        }
+        uint256 lastRewardBlock = block.number > startBlock ? block.number : startBlock;
+        totalAllocPoint = totalAllocPoint.add(_allocPoint);
+        poolInfo.push(
+            PoolInfo({
+                want: _want,
+                allocPoint: _allocPoint,
+                lastRewardBlock: lastRewardBlock,
+                accBalloonPerShare: 0,
+                strat: _strat
+            })
+        );
     }
 
     // Update the given pool's BLN allocation point. Can only be called by the owner.

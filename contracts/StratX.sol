@@ -76,7 +76,7 @@ contract StratX is Ownable, ReentrancyGuard, Pausable {
     
     address public constant pcsRouterAddress = 0x05fF2B0DB69458A0750badebc4f9e13aDd608C7F; // uniswap, pancakeswap etc
     address public constant wbnbAddress = 0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c;
-    address public constant rewardAddress = 0x893921DE4Cb52A330092002218AA825BEDCc32C0; // StratA
+    address public rewardAddress; // StratA
     address public constant devAddress = 0x47231b2EcB18b7724560A78cd7191b121f53FABc;
     address public autoFarmAddress;
     BalloonToken public balloon;
@@ -109,6 +109,7 @@ contract StratX is Ownable, ReentrancyGuard, Pausable {
 
     constructor(
         address _autoFarmAddress,
+        address _rewardAddress,
         BalloonToken _balloon,
         bool _isCAKEStaking,
         address _farmContractAddress,
@@ -120,6 +121,7 @@ contract StratX is Ownable, ReentrancyGuard, Pausable {
     ) public {
         govAddress = msg.sender;
         autoFarmAddress = _autoFarmAddress;
+        rewardAddress = _rewardAddress;
         balloon = _balloon;
 
         isCAKEStaking = _isCAKEStaking;
@@ -202,6 +204,7 @@ contract StratX is Ownable, ReentrancyGuard, Pausable {
 
     // Deposit into the yield farm we're autocompounding
     function _farm() internal {
+        require(sharesTotal > 0, "No stakers");
         uint256 wantAmt = IERC20(wantAddress).balanceOf(address(this));
         wantLockedTotal = wantLockedTotal.add(wantAmt);
         IERC20(wantAddress).safeIncreaseAllowance(farmContractAddress, wantAmt);
@@ -499,9 +502,9 @@ contract StratX is Ownable, ReentrancyGuard, Pausable {
      */
     function inCaseTokensGetStuck(address _token, uint256 _amount, address _to) external govOnly {
         require(
-            _token != earnedAddress || 
-            _token != wantAddress || 
-            _token != token0Address ||
+            _token != earnedAddress &&
+            _token != wantAddress &&
+            _token != token0Address &&
             _token != token1Address
             , "!safe");
         IERC20(_token).safeTransfer(_to, _amount);
