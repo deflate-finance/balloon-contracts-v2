@@ -62,17 +62,19 @@ contract StratA is Ownable, ReentrancyGuard, Pausable {
         uint256 shares; // How many LP tokens the user has provided.
         uint256 rewardDebt; // Reward debt. See explanation below.
 
-        // We do some fancy math here. Basically, any point in time, the amount of BLN
-        // entitled to a user but is pending to be distributed is:
-        //
-        //   amount = user.shares / sharesTotal * wantLockedTotal
-        //   pending reward = (amount * pool.accBalloonPerShare) - user.rewardDebt
-        //
-        // Whenever a user deposits or withdraws want tokens to a pool. Here's what happens:
-        //   1. The pool's `accBalloonPerShare` (and `lastRewardBlock`) gets updated.
-        //   2. User receives the pending reward sent to his/her address.
-        //   3. User's `amount` gets updated.
-        //   4. User's `rewardDebt` gets updated.
+        /**
+         * We do some fancy math here. Basically, any point in time, the amount of BLN
+         * entitled to a user but is pending to be distributed is:
+         *
+         *   amount = user.shares / sharesTotal * wantLockedTotal
+         *   pending reward = (amount * pool.accBalloonPerShare) - user.rewardDebt
+         *
+         * Whenever a user deposits or withdraws want tokens to a pool. Here's what happens:
+         *   1. The pool's `accBalloonPerShare` (and `lastRewardBlock`) gets updated.
+         *   2. User receives the pending reward sent to his/her address.
+         *   3. User's `amount` gets updated.
+         *   4. User's `rewardDebt` gets updated.
+         */
     }
 
     address public constant wbnbAddress = 0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c;
@@ -104,7 +106,7 @@ contract StratA is Ownable, ReentrancyGuard, Pausable {
     }
 
     /**
-     * Receives new deposits from user, can only be called by MasterChef
+     * @dev Receives new deposits from user, can only be called by MasterChef
      * _userAddress is used
      */
     function deposit(address _userAddress, uint256 _wantAmt) external onlyOwner nonReentrant whenNotPaused returns (uint256) {
@@ -133,7 +135,7 @@ contract StratA is Ownable, ReentrancyGuard, Pausable {
     }
 
     /**
-     * Returns deposits from user, can only be called by MasterChef
+     * @dev Returns deposits from user, can only be called by MasterChef
      * _userAddress is used
      */
     function withdraw(address _userAddress, uint256 _wantAmt) external onlyOwner nonReentrant returns (uint256) {
@@ -168,7 +170,7 @@ contract StratA is Ownable, ReentrancyGuard, Pausable {
     }
     
     /**
-     * Called by MasterChef to properly reward stakers with WBNB
+     * @dev Called by MasterChef to properly reward stakers with WBNB
      * Anyone is free to call this function if they feel generous
      */
     function depositReward(uint256 _depositAmt) external returns (bool) {
@@ -193,7 +195,7 @@ contract StratA is Ownable, ReentrancyGuard, Pausable {
     }
 
     /** 
-     *  Accidentally send your tokens to this address? We can help!
+     *  @dev Accidentally send your tokens to this address? We can help!
      *  Explicitly cannot call the only token stored in this contract
      */
     function inCaseTokensGetStuck(address _token, uint256 _amount, address _to) external govOnly {

@@ -65,17 +65,19 @@ contract BalloonFarm is Ownable, ReentrancyGuard {
         uint256 shares; // How many LP tokens the user has provided.
         uint256 rewardDebt; // Reward debt. See explanation below.
 
-        // We do some fancy math here. Basically, any point in time, the amount of BLN
-        // entitled to a user but is pending to be distributed is:
-        //
-        //   amount = user.shares / sharesTotal * wantLockedTotal
-        //   pending reward = (amount * pool.accBalloonPerShare) - user.rewardDebt
-        //
-        // Whenever a user deposits or withdraws want tokens to a pool. Here's what happens:
-        //   1. The pool's `accBalloonPerShare` (and `lastRewardBlock`) gets updated.
-        //   2. User receives the pending reward sent to his/her address.
-        //   3. User's `amount` gets updated.
-        //   4. User's `rewardDebt` gets updated.
+        /**
+         * We do some fancy math here. Basically, any point in time, the amount of BLN
+         * entitled to a user but is pending to be distributed is:
+         *
+         *   amount = user.shares / sharesTotal * wantLockedTotal
+         *   pending reward = (amount * pool.accBalloonPerShare) - user.rewardDebt
+         *
+         * Whenever a user deposits or withdraws want tokens to a pool. Here's what happens:
+         *   1. The pool's `accBalloonPerShare` (and `lastRewardBlock`) gets updated.
+         *   2. User receives the pending reward sent to his/her address.
+         *   3. User's `amount` gets updated.
+         *   4. User's `rewardDebt` gets updated.
+         */
     }
 
     struct PoolInfo {
