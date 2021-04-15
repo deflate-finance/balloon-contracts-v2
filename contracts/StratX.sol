@@ -450,7 +450,7 @@ contract StratX is Ownable, ReentrancyGuard, Pausable {
     function _resetAllowances() internal {
         IERC20(wantAddress).safeApprove(pcsRouterAddress, uint256(0));
         IERC20(wantAddress).safeIncreaseAllowance(
-            pcsRouterAddress,
+            farmContractAddress,
             uint256(-1)
         );
 
