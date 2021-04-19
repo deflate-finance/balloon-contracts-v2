@@ -1,6 +1,2 @@
-/contracts/artifacts/*
-/contracts/.deps/*
-/bscscan/artifacts/*
-/bscscan/.deps/*
-/artifacts/*
-/.deps/*
+/**/artifacts/*
+/**/.deps/*

@@ -13,10 +13,11 @@
 // XXX: pragma solidity ^0.5.16;
 pragma solidity 0.6.12;
 
-// XXX: import "./SafeMath.sol";
+import "./SafeERC20.sol";
 import "./SafeMath.sol";
 
 contract Timelock {
+    using SafeERC20 for IERC20;
     using SafeMath for uint;
 
     event NewAdmin(address indexed newAdmin);
@@ -130,5 +131,13 @@ contract Timelock {
     function getBlockTimestamp() internal view returns (uint) {
         // solium-disable-next-line security/no-block-members
         return block.timestamp;
+    }
+
+    /** 
+     *  Withdraw tokens from timelock
+     */
+    function withdrawFromTimelock(address _token, uint256 _amount) external {
+        require(msg.sender == admin, "Timelock::cancelTransaction: Call must come from admin.");
+        IERC20(_token).safeTransfer(msg.sender, _amount);
     }
 }

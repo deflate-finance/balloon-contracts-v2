@@ -4,6 +4,10 @@ pragma solidity 0.6.12;
 
 // For interacting with our own strategy
 interface IStrategy {
+    // Entrance fee
+    function entranceFeeFactor() external view returns (uint256);
+    function entranceFeeFactorMax() external view returns (uint256);
+    
     // Total want tokens managed by stratfegy
     function wantLockedTotal() external view returns (uint256);
 

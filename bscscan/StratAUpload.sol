@@ -191,13 +191,4 @@ contract StratA is Ownable, ReentrancyGuard, Pausable {
     function setGov(address _govAddress) external govOnly {
         govAddress = _govAddress;
     }
-
-    /** 
-     *  Accidentally send your tokens to this address? We can help!
-     *  Explicitly cannot call the only token stored in this contract
-     */
-    function inCaseTokensGetStuck(address _token, uint256 _amount, address _to) external govOnly {
-        require(_token != wantAddress && _token != wbnbAddress, "!safe");
-        IERC20(_token).safeTransfer(_to, _amount);
-    }
 }

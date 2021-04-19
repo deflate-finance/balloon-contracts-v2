@@ -47,17 +47,16 @@ Earned and want tokens are stored here.
 
 pragma solidity 0.6.12;
 
-import "https://github.com/OpenZeppelin/openzeppelin-contracts/blob/release-v3.1.0/contracts/access/Ownable.sol";
-import "https://github.com/OpenZeppelin/openzeppelin-contracts/blob/release-v3.1.0/contracts/token/ERC20/SafeERC20.sol";
-import "https://github.com/OpenZeppelin/openzeppelin-contracts/blob/release-v3.1.0/contracts/utils/Pausable.sol";
-import "https://github.com/OpenZeppelin/openzeppelin-contracts/blob/release-v3.1.0/contracts/utils/ReentrancyGuard.sol";
-
-import "./interfaces/IPancakeRouter02.sol";
-import "./interfaces/IStratA.sol";
-import "./interfaces/IUnitroller.sol";
-import "./interfaces/IVBNB.sol";
-import "./interfaces/IVToken.sol";
-import "./interfaces/IWBNB.sol";
+import "./Ownable.sol";
+import "./SafeERC20.sol";
+import "./Pausable.sol";
+import "./ReentrancyGuard.sol";
+import "./IPancakeRouter02.sol";
+import "./IStratA.sol";
+import "./IUnitroller.sol";
+import "./IVBNB.sol";
+import "./IVToken.sol";
+import "./IWBNB.sol";
 
 contract StratV is Ownable, ReentrancyGuard, Pausable {
     using SafeERC20 for IERC20;

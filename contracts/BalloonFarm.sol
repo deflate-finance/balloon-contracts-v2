@@ -53,7 +53,7 @@ import "https://github.com/OpenZeppelin/openzeppelin-contracts/blob/release-v3.1
 import "https://github.com/OpenZeppelin/openzeppelin-contracts/blob/release-v3.1.0/contracts/utils/EnumerableSet.sol";
 import "https://github.com/OpenZeppelin/openzeppelin-contracts/blob/release-v3.1.0/contracts/utils/ReentrancyGuard.sol";
 
-import "./IStrategy.sol";
+import "./interfaces/IStrategy.sol";
 import "./BalloonToken.sol";
 
 contract BalloonFarm is Ownable, ReentrancyGuard {
@@ -188,7 +188,7 @@ contract BalloonFarm is Ownable, ReentrancyGuard {
     }
 
     // Update reward variables for all pools. Be careful of gas spending!
-    function massUpdatePools() public nonReentrant {
+    function massUpdatePools() public {
         uint256 length = poolInfo.length;
         for (uint256 pid = 0; pid < length; ++pid) {
             updatePool(pid);
@@ -319,14 +319,5 @@ contract BalloonFarm is Ownable, ReentrancyGuard {
             transferSuccess = balloon.transfer(_to, _amt);
         }
         require(transferSuccess, "safeBalloonTransfer: transfer failed");
-    }
-
-    /** 
-     *  Accidentally send your tokens to this address? We can help!
-     *  Explicitly cannot call the only token stored in this contract, BLN
-     */
-    function inCaseTokensGetStuck(address _token, uint256 _amount) external onlyOwner {
-        require(_token != address(balloon), "!safe");
-        IERC20(_token).safeTransfer(msg.sender, _amount);
     }
 }
