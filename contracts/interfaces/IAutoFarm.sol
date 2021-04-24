@@ -26,6 +26,11 @@ interface IAutoFarm {
      * @dev Withdraw LP tokens from MasterChef.
      */
     function withdraw(uint256 _pid, uint256 _amount) external;
+
+    /**
+     * @dev Withdraw LP tokens from MasterChef without caring about rewards.
+     */
+    function emergencyWithdraw(uint256 _pid) external;
     
     function userInfo(uint256 _pid, address _user) external view returns (uint256, uint256);
 }

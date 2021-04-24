@@ -60,117 +60,65 @@ import "./interfaces/IPancakeRouter02.sol";
 import "./interfaces/IStrategy.sol";
 import "./interfaces/IStratA.sol";
 
-contract StratY is Ownable, ReentrancyGuard, Pausable {
+abstract contract StratY is Ownable, ReentrancyGuard, Pausable {
     // Maximises yields in autofarm
 
     using SafeMath for uint256;
     using SafeERC20 for IERC20;
-    
+
     bool public isTokenStaking;
 
     address public farmContractAddress; // address of farm, eg, Auto, Swamp, etc.	
-    address public farmStrat;
     uint256 public pid; // pid of pool in farmContractAddress
     address public wantAddress;
     address public token0Address;
     address public token1Address;
     address public earnedAddress;
     
-    address public constant pcsRouterAddress = 0x05fF2B0DB69458A0750badebc4f9e13aDd608C7F; // uniswap, pancakeswap etc
+    address public constant pcsRouterAddress = 0x10ED43C718714eb63d5aA57B78B54704E256024E; // uniswap, pancakeswap etc
     address public constant wbnbAddress = 0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c;
+    address public rewardToken;
     address public rewardAddress; // StratA
-    address public constant devAddress = 0x47231b2EcB18b7724560A78cd7191b121f53FABc;
+    address public constant devAddress = 0x7ead6eb3aB594817995F9995D091c06913c9A21C;
     address public autoFarmAddress;
     address public balloonAddress;
+    address public constant depositFeeAddress = 0x4E62a0488f0E207B3087e321937Fd9F5240ab930;
     address public govAddress; // timelock contract
 
     uint256 public lastEarnBlock = block.number;
     uint256 public sharesTotal = 0;
 
-    uint256 public constant controllerFee = 100;
-    uint256 public constant rewardRate = 150;
-    uint256 public constant buyBackRate = 200;
-    uint256 public constant feeMax = 10000; // 100 = 1%
     address public constant buyBackAddress = 0x000000000000000000000000000000000000dEaD;
+    uint256 public controllerFee = 100;
+    uint256 public rewardRate = 150;
+    uint256 public buyBackRate = 200;
+    uint256 public constant feeMaxTotal = 450; // 4.5%. Anything above this is a negative APY
+    uint256 public constant feeMax = 10000; // 100 = 1%
+    
+    uint256 public entranceFeeFactor = 9990; // < 0.1% entrance fee - used for farm autocompounding
+    uint256 public constant entranceFeeFactorMax = 10000;
+    uint256 public constant entranceFeeFactorLL = 9950; // 0.5% is the max entrance fee settable. LL = lowerlimit
 
     uint256 public slippageFactor = 950; // 5% default slippage tolerance
     uint256 public constant slippageFactorUL = 995;
 
-    address[] public earnedToBnbPath;
+    address[] public earnedToWbnbPath;
+    address[] public earnedToRewardPath;
     address[] public earnedToBLNPath;
     address[] public earnedToWantPath;
     address[] public earnedToToken0Path;
     address[] public earnedToToken1Path;
     address[] public token0ToEarnedPath;
     address[] public token1ToEarnedPath;
-
-    constructor(
-        address _autoFarmAddress,
-        address _rewardAddress,
-        address _balloonAddress,
-        bool _isTokenStaking,
-        address _farmContractAddress,
-        address _farmStrat,
-        uint256 _farmPid,
-        address _wantAddress,
-        address _earnedAddress
-    ) public {
-        govAddress = msg.sender;
-        autoFarmAddress = _autoFarmAddress;
-        rewardAddress = _rewardAddress;
-        balloonAddress = _balloonAddress;
-        
-        isTokenStaking = _isTokenStaking;
-        wantAddress = _wantAddress;
-
-        farmContractAddress = _farmContractAddress;	
-        farmStrat = _farmStrat;
-        pid = _farmPid;
-        earnedAddress = _earnedAddress;
-
-        earnedToBnbPath = [earnedAddress, wbnbAddress];
-
-        earnedToBLNPath = [earnedAddress, wbnbAddress, balloonAddress];
-        if (wbnbAddress == earnedAddress) {
-            earnedToBLNPath = [wbnbAddress, balloonAddress];
-        }
+    address[] public wantToWbnbPath;
     
-        if (!isTokenStaking) {
-            token0Address = IPancakePair(wantAddress).token0();
-            token1Address = IPancakePair(wantAddress).token1();
-            
-            earnedToToken0Path = [earnedAddress, wbnbAddress, token0Address];
-            if (wbnbAddress == token0Address) {
-                earnedToToken0Path = [earnedAddress, wbnbAddress];
-            }
-    
-            earnedToToken1Path = [earnedAddress, wbnbAddress, token1Address];
-            if (wbnbAddress == token1Address) {
-                earnedToToken1Path = [earnedAddress, wbnbAddress];
-            }
-    
-            token0ToEarnedPath = [token0Address, wbnbAddress, earnedAddress];
-            if (wbnbAddress == token0Address) {
-                token0ToEarnedPath = [wbnbAddress, earnedAddress];
-            }
-    
-            token1ToEarnedPath = [token1Address, wbnbAddress, earnedAddress];
-            if (wbnbAddress == token1Address) {
-                token1ToEarnedPath = [wbnbAddress, earnedAddress];
-            }
-        } else {
-            earnedToWantPath = [earnedAddress, wbnbAddress, wantAddress];
-            if (wbnbAddress == wantAddress) {
-                earnedToWantPath = [earnedAddress, wantAddress];
-            }
-        }
-
-        transferOwnership(autoFarmAddress);
-        
-        _resetAllowances();
-    }
-    
-    event SetSettings(uint256 _slippageFactor);
+    event SetSettings(
+        uint256 _controllerFee,
+        uint256 _rewardRate,
+        uint256 _buyBackRate,
+        uint256 _entranceFeeFactor,
+        uint256 _slippageFactor
+    );
     
     modifier govOnly() {
         require(msg.sender == govAddress, "!gov");
@@ -187,9 +135,19 @@ contract StratY is Ownable, ReentrancyGuard, Pausable {
             address(this),
             _wantAmt
         );
+        
+        // Deposit fee
+        uint256 depositFee = _wantAmt
+            .mul(entranceFeeFactorMax.sub(entranceFeeFactor))
+            .div(entranceFeeFactorMax);
+        IERC20(wantAddress).safeTransfer(depositFeeAddress, depositFee);
 
         // Also make sure you account for farm fees
+        uint256 sharesBefore = vaultSharesTotal();
         uint256 sharesAdded = _farm();
+        if (sharesTotal != 0) {
+            sharesAdded.mul(sharesTotal).div(sharesBefore);
+        }
 
         sharesTotal = sharesTotal.add(sharesAdded);
 
@@ -197,7 +155,7 @@ contract StratY is Ownable, ReentrancyGuard, Pausable {
     }
 
     // If want tokens ever get stuck
-    function farm() public nonReentrant {
+    function farm() external govOnly {
         _farm();
     }
 
@@ -206,9 +164,9 @@ contract StratY is Ownable, ReentrancyGuard, Pausable {
         uint256 wantAmt = IERC20(wantAddress).balanceOf(address(this));
         if(wantAmt == 0) return 0;
 
-        (uint256 sharesBefore,) = IAutoFarm(farmContractAddress).userInfo(pid, address(this));
+        uint256 sharesBefore = vaultSharesTotal();
         IAutoFarm(farmContractAddress).deposit(pid, wantAmt);
-        (uint256 sharesAfter,) = IAutoFarm(farmContractAddress).userInfo(pid, address(this));
+        uint256 sharesAfter = vaultSharesTotal();
         uint256 sharesAmount = sharesAfter.sub(sharesBefore); // Entrance fees
         return sharesAmount;
     }
@@ -219,23 +177,22 @@ contract StratY is Ownable, ReentrancyGuard, Pausable {
      */
     function withdraw(address _userAddress, uint256 _wantAmt) external onlyOwner nonReentrant returns (uint256) {
         require(_wantAmt > 0, "_wantAmt is 0");
-        
-        // If we use farm shares and stakedWantTokens
-        // we need to also use their strat numbers
-        uint256 stratShares = IStrategy(farmStrat).sharesTotal();
-        uint256 stratWantLocked = IStrategy(farmStrat).wantLockedTotal();
-        uint256 sharesRemoved = _wantAmt.mul(stratShares).div(stratWantLocked);
 
-        IAutoFarm(farmContractAddress).withdraw(pid, _wantAmt);
-
-        uint256 wantAmt = IERC20(wantAddress).balanceOf(address(this));
-        if (_wantAmt > wantAmt) {
-            _wantAmt = wantAmt;
-        }
+        uint256 sharesRemoved = _wantAmt.mul(sharesTotal).div(wantLockedTotal());
         
-        if (sharesRemoved > sharesTotal) {
-            sharesRemoved = sharesTotal;
+        uint256 wantBal = IERC20(wantAddress).balanceOf(address(this));
+        
+        if (wantBal < _wantAmt) {
+            IAutoFarm(farmContractAddress).withdraw(pid, _wantAmt.sub(wantBal));
+            wantBal = IERC20(wantAddress).balanceOf(address(this));
         }
+        if (wantBal > _wantAmt) {
+            wantBal = _wantAmt;
+        }
+        if (sharesRemoved > wantBal) {
+            sharesRemoved = wantBal;
+        }
+
         sharesTotal = sharesTotal.sub(sharesRemoved);
 
         IERC20(wantAddress).safeTransfer(autoFarmAddress, _wantAmt);
@@ -248,7 +205,7 @@ contract StratY is Ownable, ReentrancyGuard, Pausable {
      * 2. Converts farm tokens into want tokens
      * 3. Deposits want tokens
      */
-    function earn() external nonReentrant whenNotPaused {
+    function earn() external virtual nonReentrant whenNotPaused {
         IAutoFarm(farmContractAddress).withdraw(pid, 0);
 
         // Converts farm tokens into want tokens
@@ -258,7 +215,15 @@ contract StratY is Ownable, ReentrancyGuard, Pausable {
         earnedAmt = distributeRewards(earnedAmt);
         earnedAmt = buyBack(earnedAmt);
 
-        if (!isTokenStaking) {
+        if (isTokenStaking) {
+            if (earnedAddress != wantAddress) {
+                _safeSwap(
+                    earnedAmt,
+                    earnedToWantPath,
+                    address(this)
+                );
+            }
+        } else {
             if (earnedAddress != token0Address) {
                 // Swap half earned to token0
                 _safeSwap(
@@ -292,14 +257,6 @@ contract StratY is Ownable, ReentrancyGuard, Pausable {
                     now.add(600)
                 );
             }
-        } else {
-            if (earnedAddress != wantAddress) {
-                _safeSwap(
-                    earnedAmt,
-                    earnedToWantPath,
-                    address(this)
-                );
-            }
         }
 
         lastEarnBlock = block.number;
@@ -309,23 +266,25 @@ contract StratY is Ownable, ReentrancyGuard, Pausable {
 
     /**
      * 1. Takes a percentage (1%) of earned tokens
-     * 2. Converts the percentage to BLN
-     * 3. Burns the BLN
+     * 2. Converts the percentage to WBNB
+     * 3. Rewards dev for existing
      */
-    function buyBack(uint256 _earnedAmt) internal returns (uint256) {
-        if (buyBackRate == 0) {
-            return _earnedAmt;
+    function distributeFees(uint256 _earnedAmt) internal returns (uint256) {
+        if (_earnedAmt > 0 && controllerFee > 0) {
+            // Performance fee
+            uint256 fee = _earnedAmt.mul(controllerFee).div(feeMax);
+    
+            // One must hope for a BNB pairing
+            _safeSwapBnb(
+                fee,
+                earnedToWbnbPath,
+                devAddress
+            );
+            
+            _earnedAmt = _earnedAmt.sub(fee);
         }
 
-        uint256 buyBackAmt = _earnedAmt.mul(buyBackRate).div(feeMax);
-
-        _safeSwap(
-            buyBackAmt,
-            earnedToBLNPath,
-            buyBackAddress
-        );
-
-        return _earnedAmt.sub(buyBackAmt);
+        return _earnedAmt;
     }
 
     /**
@@ -338,18 +297,18 @@ contract StratY is Ownable, ReentrancyGuard, Pausable {
             // Performance fee
             uint256 fee = _earnedAmt.mul(rewardRate).div(feeMax);
     
-            uint256 currWbnb = IERC20(wbnbAddress).balanceOf(address(this));
+            uint256 currReward = IERC20(rewardToken).balanceOf(address(this));
             
             // One must hope for a BNB pairing
             _safeSwap(
                 fee,
-                earnedToBnbPath,
+                earnedToRewardPath,
                 address(this)
             );
             
-            uint256 diffWbnb = IERC20(wbnbAddress).balanceOf(address(this)).sub(currWbnb);
+            uint256 diffReward = IERC20(rewardToken).balanceOf(address(this)).sub(currReward);
             
-            IStratA(rewardAddress).depositReward(diffWbnb);
+            IStratA(rewardAddress).depositReward(diffReward);
             
             _earnedAmt = _earnedAmt.sub(fee);
         }
@@ -359,22 +318,20 @@ contract StratY is Ownable, ReentrancyGuard, Pausable {
 
     /**
      * 1. Takes a percentage (1%) of earned tokens
-     * 2. Converts the percentage to WBNB
-     * 3. Rewards dev for existing
+     * 2. Converts the percentage to BLN
+     * 3. Burns the BLN
      */
-    function distributeFees(uint256 _earnedAmt) internal returns (uint256) {
-        if (_earnedAmt > 0 && rewardRate > 0) {
-            // Performance fee
-            uint256 fee = _earnedAmt.mul(controllerFee).div(feeMax);
+    function buyBack(uint256 _earnedAmt) internal returns (uint256) {
+        if (buyBackRate > 0) {
+            uint256 buyBackAmt = _earnedAmt.mul(buyBackRate).div(feeMax);
     
-            // One must hope for a BNB pairing
             _safeSwap(
-                fee,
-                earnedToBnbPath,
-                devAddress
+                buyBackAmt,
+                earnedToBLNPath,
+                buyBackAddress
             );
             
-            _earnedAmt = _earnedAmt.sub(fee);
+            _earnedAmt = _earnedAmt.sub(buyBackAmt);
         }
 
         return _earnedAmt;
@@ -409,8 +366,20 @@ contract StratY is Ownable, ReentrancyGuard, Pausable {
         }
     }
     
+    function vaultSharesTotal() public view returns (uint256) {	
+        (uint256 vaultShares,) = IAutoFarm(farmContractAddress).userInfo(pid, address(this));
+        return vaultShares;
+    }
+    
     function wantLockedTotal() public view returns (uint256) {	
-        return IAutoFarm(farmContractAddress).stakedWantTokens(pid, address(this));
+        return IERC20(wantAddress).balanceOf(address(this))
+            .add(IAutoFarm(farmContractAddress).stakedWantTokens(pid, address(this)));
+    }
+    
+    function updateRewardAddress(address _rewardAddress, address _rewardToken) external govOnly {	
+        rewardAddress = _rewardAddress;
+        rewardToken = _rewardToken;
+        earnedToRewardPath = [earnedAddress, wbnbAddress, _rewardToken];
     }
 
     // Stops time
@@ -424,9 +393,15 @@ contract StratY is Ownable, ReentrancyGuard, Pausable {
     }
 
     function _resetAllowances() internal {
-        IERC20(wantAddress).safeApprove(pcsRouterAddress, uint256(0));
+        IERC20(wantAddress).safeApprove(farmContractAddress, uint256(0));
         IERC20(wantAddress).safeIncreaseAllowance(
             farmContractAddress,
+            uint256(-1)
+        );
+
+        IERC20(wantAddress).safeApprove(pcsRouterAddress, uint256(0));
+        IERC20(wantAddress).safeIncreaseAllowance(
+            pcsRouterAddress,
             uint256(-1)
         );
 
@@ -457,17 +432,58 @@ contract StratY is Ownable, ReentrancyGuard, Pausable {
         );
     }
     
-    function setSettings(uint256 _slippageFactor) external govOnly {
+    function setSettings(
+        uint256 _controllerFee,
+        uint256 _rewardRate,
+        uint256 _buyBackRate,
+        uint256 _entranceFeeFactor,
+        uint256 _slippageFactor
+    ) external govOnly {
+        require(_controllerFee.add(_rewardRate).add(_buyBackRate) <= feeMaxTotal, "Max fee of 4.5%");
+        require(_entranceFeeFactor >= entranceFeeFactorLL, "_entranceFeeFactor too low");
+        require(_entranceFeeFactor <= entranceFeeFactorMax, "_entranceFeeFactor too high");
         require(_slippageFactor <= slippageFactorUL, "_slippageFactor too high");
+        controllerFee = _controllerFee;
+        rewardRate = _rewardRate;
+        buyBackRate = _buyBackRate;
+        entranceFeeFactor = _entranceFeeFactor;
         slippageFactor = _slippageFactor;
 
-        emit SetSettings(_slippageFactor);
+        emit SetSettings(
+            _controllerFee,
+            _rewardRate,
+            _buyBackRate,
+            _entranceFeeFactor,
+            _slippageFactor
+        );
     }
 
 
     function setGov(address _govAddress) external govOnly {
         govAddress = _govAddress;
     }
+
+    /**
+     * @dev Pauses deposits. Withdraws all funds from the MasterChef, leaving rewards behind
+     */
+    function panic() external govOnly {
+        _pause();
+        IAutoFarm(farmContractAddress).withdraw(pid, uint(-1));
+    }
+
+    /**
+     * @dev Pauses deposits. Withdraws all funds from the MasterChef, leaving rewards behind
+     */
+    function panicEmergency() external govOnly {
+        _pause();
+        IAutoFarm(farmContractAddress).emergencyWithdraw(pid);
+    }
+
+    function unpanic() external govOnly {
+        _unpause();
+        _farm();
+    }
+
     
     function _safeSwap(
         uint256 _amountIn,
@@ -478,6 +494,23 @@ contract StratY is Ownable, ReentrancyGuard, Pausable {
         uint256 amountOut = amounts[amounts.length.sub(1)];
 
         IPancakeRouter02(pcsRouterAddress).swapExactTokensForTokensSupportingFeeOnTransferTokens(
+            _amountIn,
+            amountOut.mul(slippageFactor).div(1000),
+            _path,
+            _to,
+            now.add(600)
+        );
+    }
+    
+    function _safeSwapBnb(
+        uint256 _amountIn,
+        address[] memory _path,
+        address _to
+    ) internal {
+        uint256[] memory amounts = IPancakeRouter02(pcsRouterAddress).getAmountsOut(_amountIn, _path);
+        uint256 amountOut = amounts[amounts.length.sub(1)];
+
+        IPancakeRouter02(pcsRouterAddress).swapExactTokensForETHSupportingFeeOnTransferTokens(
             _amountIn,
             amountOut.mul(slippageFactor).div(1000),
             _path,

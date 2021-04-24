@@ -77,7 +77,7 @@ contract StratA is Ownable, ReentrancyGuard, Pausable {
          */
     }
 
-    address public constant wbnbAddress = 0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c;
+    address public constant busdAddress = 0xe9e7CEA3DedcA5984780Bafc599bD69ADd087D56;
     address public wantAddress;
 
     address public autoFarmAddress;
@@ -115,7 +115,7 @@ contract StratA is Ownable, ReentrancyGuard, Pausable {
         if (user.shares > 0) {
             uint256 pending = user.shares.mul(accBnbPerShare).div(1e18).sub(user.rewardDebt);
             if (pending > 0) {
-                IERC20(wbnbAddress).safeTransfer(_userAddress, pending);
+                IERC20(busdAddress).safeTransfer(_userAddress, pending);
             }
         }
 
@@ -146,7 +146,7 @@ contract StratA is Ownable, ReentrancyGuard, Pausable {
         uint256 pending = user.shares.mul(accBnbPerShare).div(1e18).sub(user.rewardDebt);
         
         if (pending > 0) {
-            IERC20(wbnbAddress).safeTransfer(_userAddress, pending);
+            IERC20(busdAddress).safeTransfer(_userAddress, pending);
         }
 
         uint256 wantAmt = IERC20(wantAddress).balanceOf(address(this));
@@ -174,7 +174,7 @@ contract StratA is Ownable, ReentrancyGuard, Pausable {
      * Anyone is free to call this function if they feel generous
      */
     function depositReward(uint256 _depositAmt) external returns (bool) {
-        IERC20(wbnbAddress).safeTransferFrom(msg.sender, address(this), _depositAmt);
+        IERC20(busdAddress).safeTransferFrom(msg.sender, address(this), _depositAmt);
         accBnbPerShare = accBnbPerShare.add(_depositAmt.mul(1e18).div(sharesTotal));
         
         return true;

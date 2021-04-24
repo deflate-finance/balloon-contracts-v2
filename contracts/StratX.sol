@@ -53,6 +53,7 @@ import "https://github.com/OpenZeppelin/openzeppelin-contracts/blob/release-v3.1
 import "https://github.com/OpenZeppelin/openzeppelin-contracts/blob/release-v3.1.0/contracts/utils/ReentrancyGuard.sol";
 
 import "./interfaces/IPancakeswapFarm.sol";
+import "./interfaces/IPancakePair.sol";
 import "./interfaces/IPancakeRouter02.sol";
 import "./interfaces/IStratA.sol";
 
@@ -71,28 +72,25 @@ contract StratX is Ownable, ReentrancyGuard, Pausable {
     address public token1Address;
     address public earnedAddress;
     
-    address public constant pcsRouterAddress = 0x05fF2B0DB69458A0750badebc4f9e13aDd608C7F; // uniswap, pancakeswap etc
+    address public constant pcsRouterAddress = 0x10ED43C718714eb63d5aA57B78B54704E256024E; // uniswap, pancakeswap etc
     address public constant wbnbAddress = 0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c;
+    address public rewardToken;
     address public rewardAddress; // StratA
-    address public constant devAddress = 0x47231b2EcB18b7724560A78cd7191b121f53FABc;
+    address public constant devAddress = 0x7ead6eb3aB594817995F9995D091c06913c9A21C;
     address public autoFarmAddress;
     address public balloonAddress;
     address public govAddress; // timelock contract
-    bool public onlyGov = true; // used for earn()
 
     uint256 public lastEarnBlock = block.number;
     uint256 public wantLockedTotal = 0;
     uint256 public sharesTotal = 0;
 
-    uint256 public constant controllerFee = 100;
-    uint256 public constant controllerFeeMax = 10000; // 100 = 1%
-
-    uint256 public constant rewardRate = 100;
-    uint256 public constant rewardRateMax = 10000; // 100 = 1%
-
-    uint256 public constant buyBackRate = 100;
-    uint256 public constant buyBackRateMax = 10000; // 100 = 1%
     address public constant buyBackAddress = 0x000000000000000000000000000000000000dEaD;
+    uint256 public controllerFee = 100;
+    uint256 public rewardRate = 150;
+    uint256 public buyBackRate = 200;
+    uint256 public constant feeMaxTotal = 450; // 4.5%. Anything above this is a negative APY
+    uint256 public constant feeMax = 10000; // 100 = 1%
 
     uint256 public entranceFeeFactor = 9990; // < 0.1% entrance fee - goes to pool + prevents front-running
     uint256 public constant entranceFeeFactorMax = 10000;
@@ -102,6 +100,7 @@ contract StratX is Ownable, ReentrancyGuard, Pausable {
     uint256 public constant slippageFactorUL = 995;
 
     address[] public earnedToWbnbPath;
+    address[] public earnedToRewardPath;
     address[] public earnedToBLNPath;
     address[] public earnedToToken0Path;
     address[] public earnedToToken1Path;
@@ -111,26 +110,26 @@ contract StratX is Ownable, ReentrancyGuard, Pausable {
     constructor(
         address _autoFarmAddress,
         address _rewardAddress,
+        address _rewardToken,
         address _balloonAddress,
         bool _isCAKEStaking,
         address _farmContractAddress,
         uint256 _farmPid,
         address _wantAddress,
-        address _token0Address,
-        address _token1Address,
         address _earnedAddress
     ) public {
         govAddress = msg.sender;
         autoFarmAddress = _autoFarmAddress;
         rewardAddress = _rewardAddress;
+        rewardToken = _rewardToken;
         balloonAddress = _balloonAddress;
 
         isCAKEStaking = _isCAKEStaking;
         wantAddress = _wantAddress;
 
         if (!isCAKEStaking) {
-            token0Address = _token0Address;
-            token1Address = _token1Address;
+            token0Address = IPancakePair(wantAddress).token0();
+            token1Address = IPancakePair(wantAddress).token1();
         }
 
         farmContractAddress = _farmContractAddress;
@@ -138,6 +137,7 @@ contract StratX is Ownable, ReentrancyGuard, Pausable {
         earnedAddress = _earnedAddress;
 
         earnedToWbnbPath = [earnedAddress, wbnbAddress];
+        earnedToRewardPath = [earnedAddress, wbnbAddress, rewardToken];
 
         earnedToBLNPath = [earnedAddress, wbnbAddress, balloonAddress];
         if (wbnbAddress == earnedAddress) {
@@ -170,6 +170,9 @@ contract StratX is Ownable, ReentrancyGuard, Pausable {
     }
     
     event SetSettings(
+        uint256 _controllerFee,
+        uint256 _rewardRate,
+        uint256 _buyBackRate,
         uint256 _entranceFeeFactor,
         uint256 _slippageFactor
     );
@@ -263,10 +266,6 @@ contract StratX is Ownable, ReentrancyGuard, Pausable {
      * 3. Deposits want tokens
      */
     function earn() external nonReentrant whenNotPaused {
-        if (onlyGov) {
-            require(msg.sender == govAddress, "Not authorised");
-        }
-
         // Harvest farm tokens
         if (isCAKEStaking) {
             IPancakeswapFarm(farmContractAddress).leaveStaking(0); // Just for CAKE staking, we dont use withdraw()
@@ -328,41 +327,43 @@ contract StratX is Ownable, ReentrancyGuard, Pausable {
 
     /**
      * 1. Takes a percentage (1%) of earned tokens
-     * 2. Converts the percentage to BLN
-     * 3. Burns the BLN
+     * 2. Converts the percentage to WBNB
+     * 3. Rewards dev for existing
      */
-    function buyBack(uint256 _earnedAmt) internal returns (uint256) {
-        if (buyBackRate == 0) {
-            return _earnedAmt;
+    function distributeFees(uint256 _earnedAmt) internal returns (uint256) {
+        if (_earnedAmt > 0 && controllerFee > 0) {
+            // Performance fee
+            uint256 fee = _earnedAmt.mul(controllerFee).div(feeMax);
+    
+            // One must hope for a WBNB pairing
+            _safeSwapBnb(
+                fee,
+                earnedToWbnbPath,
+                devAddress
+            );
+            
+            _earnedAmt = _earnedAmt.sub(fee);
         }
 
-        uint256 buyBackAmt = _earnedAmt.mul(buyBackRate).div(buyBackRateMax);
-
-        _safeSwap(
-            buyBackAmt,
-            earnedToBLNPath,
-            buyBackAddress
-        );
-
-        return _earnedAmt.sub(buyBackAmt);
+        return _earnedAmt;
     }
 
     /**
      * 1. Takes a percentage (1%) of earned tokens
-     * 2. Converts the percentage to WBNB
-     * 3. Rewards BLN-BNB stakers with the WBNB
+     * 2. Converts the percentage to Busd
+     * 3. Rewards BLN-BNB stakers with the Busd
      */
     function distributeRewards(uint256 _earnedAmt) internal returns (uint256) {
         if (_earnedAmt > 0 && rewardRate > 0) {
             // Performance fee
-            uint256 fee = _earnedAmt.mul(rewardRate).div(rewardRateMax);
+            uint256 fee = _earnedAmt.mul(rewardRate).div(feeMax);
     
             uint256 currWbnb = IERC20(wbnbAddress).balanceOf(address(this));
             
             // One must hope for a WBNB pairing
             _safeSwap(
                 fee,
-                earnedToWbnbPath,
+                earnedToRewardPath,
                 address(this)
             );
             
@@ -378,25 +379,23 @@ contract StratX is Ownable, ReentrancyGuard, Pausable {
 
     /**
      * 1. Takes a percentage (1%) of earned tokens
-     * 2. Converts the percentage to WBNB
-     * 3. Rewards dev for existing
+     * 2. Converts the percentage to BLN
+     * 3. Burns the BLN
      */
-    function distributeFees(uint256 _earnedAmt) internal returns (uint256) {
-        if (_earnedAmt > 0 && controllerFee > 0) {
-            // Performance fee
-            uint256 fee = _earnedAmt.mul(controllerFee).div(controllerFeeMax);
-    
-            // One must hope for a WBNB pairing
-            _safeSwap(
-                fee,
-                earnedToWbnbPath,
-                devAddress
-            );
-            
-            _earnedAmt = _earnedAmt.sub(fee);
+    function buyBack(uint256 _earnedAmt) internal returns (uint256) {
+        if (buyBackRate == 0) {
+            return _earnedAmt;
         }
 
-        return _earnedAmt;
+        uint256 buyBackAmt = _earnedAmt.mul(buyBackRate).div(feeMax);
+
+        _safeSwap(
+            buyBackAmt,
+            earnedToBLNPath,
+            buyBackAddress
+        );
+
+        return _earnedAmt.sub(buyBackAmt);
     }
 
     /**
@@ -482,18 +481,33 @@ contract StratX is Ownable, ReentrancyGuard, Pausable {
         _resetAllowances();
     }
     
+    function updateRewardAddress(address _rewardAddress, address _rewardToken) external govOnly {	
+        rewardAddress = _rewardAddress;
+        rewardToken = _rewardToken;
+        earnedToRewardPath = [earnedAddress, wbnbAddress, _rewardToken];
+    }
+    
     function setSettings(
+        uint256 _controllerFee,
+        uint256 _rewardRate,
+        uint256 _buyBackRate,
         uint256 _entranceFeeFactor,
         uint256 _slippageFactor
     ) external govOnly {
+        require(_controllerFee.add(_rewardRate).add(_buyBackRate) <= feeMaxTotal, "Max fee of 4.5%");
         require(_entranceFeeFactor >= entranceFeeFactorLL, "_entranceFeeFactor too low");
         require(_entranceFeeFactor <= entranceFeeFactorMax, "_entranceFeeFactor too high");
-        entranceFeeFactor = _entranceFeeFactor;
-
         require(_slippageFactor <= slippageFactorUL, "_slippageFactor too high");
+        controllerFee = _controllerFee;
+        rewardRate = _rewardRate;
+        buyBackRate = _buyBackRate;
+        entranceFeeFactor = _entranceFeeFactor;
         slippageFactor = _slippageFactor;
 
         emit SetSettings(
+            _controllerFee,
+            _rewardRate,
+            _buyBackRate,
             _entranceFeeFactor,
             _slippageFactor
         );
@@ -501,10 +515,6 @@ contract StratX is Ownable, ReentrancyGuard, Pausable {
 
     function setGov(address _govAddress) external govOnly {
         govAddress = _govAddress;
-    }
-
-    function setOnlyGov(bool _onlyGov) external govOnly {
-        onlyGov = _onlyGov;
     }
     
     function _safeSwap(
@@ -516,6 +526,23 @@ contract StratX is Ownable, ReentrancyGuard, Pausable {
         uint256 amountOut = amounts[amounts.length.sub(1)];
 
         IPancakeRouter02(pcsRouterAddress).swapExactTokensForTokensSupportingFeeOnTransferTokens(
+            _amountIn,
+            amountOut.mul(slippageFactor).div(1000),
+            _path,
+            _to,
+            now.add(600)
+        );
+    }
+    
+    function _safeSwapBnb(
+        uint256 _amountIn,
+        address[] memory _path,
+        address _to
+    ) internal {
+        uint256[] memory amounts = IPancakeRouter02(pcsRouterAddress).getAmountsOut(_amountIn, _path);
+        uint256 amountOut = amounts[amounts.length.sub(1)];
+
+        IPancakeRouter02(pcsRouterAddress).swapExactTokensForETHSupportingFeeOnTransferTokens(
             _amountIn,
             amountOut.mul(slippageFactor).div(1000),
             _path,
