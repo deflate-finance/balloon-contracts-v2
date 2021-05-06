@@ -73,8 +73,8 @@ contract BalloonToken is Context, IERC20, Ownable {
     string private constant _name = 'Balloon Token v2';
     string private constant _symbol = 'BLNv2';
 
-    uint256 private _taxFee = 100;
-    uint256 private _burnFee = 200;
+    uint256 private constant _taxFee = 100;
+    uint256 private constant _burnFee = 200;
 
     constructor () public {
         _rOwned[_msgSender()] = _rTotal;

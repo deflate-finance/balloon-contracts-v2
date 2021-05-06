@@ -101,6 +101,7 @@ contract BalloonFarm is Ownable, ReentrancyGuard {
 
     PoolInfo[] public poolInfo; // Info of each pool.
     mapping(uint256 => mapping(address => UserInfo)) public userInfo; // Info of each user that stakes LP tokens.
+    mapping(address => bool) private addedStrats;
     uint256 public totalAllocPoint = 0; // Total allocation points. Must be the sum of all allocation points in all pools.
 
     event Deposit(address indexed user, uint256 indexed pid, uint256 amount);
@@ -122,6 +123,7 @@ contract BalloonFarm is Ownable, ReentrancyGuard {
      * 
      */
     function addPool(uint256 _allocPoint, IERC20 _want, bool _withUpdate, address _strat) external onlyOwner nonReentrant {
+        require(!addedStrats[_strat], "Strat already added");
         if (_withUpdate) {
             massUpdatePools();
         }
@@ -136,6 +138,7 @@ contract BalloonFarm is Ownable, ReentrancyGuard {
                 strat: _strat
             })
         );
+        addedStrats[_strat] = true;
     }
 
     // Update the given pool's BLN allocation point. Can only be called by the owner.
@@ -243,7 +246,7 @@ contract BalloonFarm is Ownable, ReentrancyGuard {
     }
 
     // Withdraw LP tokens from MasterChef.
-    function withdraw(uint256 _pid, uint256 _wantAmt) public {
+    function withdraw(uint256 _pid, uint256 _wantAmt) public nonReentrant {
         updatePool(_pid);
 
         PoolInfo storage pool = poolInfo[_pid];
@@ -287,12 +290,12 @@ contract BalloonFarm is Ownable, ReentrancyGuard {
     }
 
     // Withdraw everything from pool for yourself
-    function withdrawAll(uint256 _pid) external {
+    function withdrawAll(uint256 _pid) external nonReentrant {
         withdraw(_pid, uint256(-1));
     }
 
     // Withdraw without caring about rewards. EMERGENCY ONLY.
-    function emergencyWithdraw(uint256 _pid) external {
+    function emergencyWithdraw(uint256 _pid) external nonReentrant {
         PoolInfo storage pool = poolInfo[_pid];
         UserInfo storage user = userInfo[_pid][msg.sender];
 
